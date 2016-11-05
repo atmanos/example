@@ -48,7 +48,7 @@ func handleEvents(dev *anet.Device) {
 func newPacketReader(dev *anet.Device, rsp *anet.NetifRxResponse) io.Reader {
 	var (
 		len    = uint16(rsp.Status)
-		buf    = dev.RxBuffers[rsp.ID]
+		buf    = dev.RxBuffers.Lookup(int(rsp.ID))
 		packet = buf.Page.Data[rsp.Offset : rsp.Offset+len]
 	)
 
@@ -75,5 +75,5 @@ func rx(dev *anet.Device, r io.Reader) {
 func enqueueRequest(dev *anet.Device, id uint16) {
 	req := (*anet.NetifRxRequest)(dev.Rx.NextRequest())
 	req.ID = id
-	req.Gref = dev.RxBuffers[id].Gref
+	req.Gref = dev.RxBuffers.Lookup(int(id)).Gref
 }
