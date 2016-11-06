@@ -4,8 +4,8 @@ import (
 	"atman/net/ip"
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
+	"log"
 
 	"github.com/google/netstack/tcpip"
 	"github.com/google/netstack/tcpip/buffer"
@@ -58,6 +58,7 @@ func NewEtharpLink(mac, ipaddr tcpip.Address, link EthernetLink) *EtharpLink {
 		ipaddr:    ipaddr,
 		rawipaddr: rawipaddr,
 		link:      link,
+		cache:     map[tcpip.Address]ip.HardwareAddr{},
 	}
 }
 
@@ -70,6 +71,8 @@ type EtharpLink struct {
 	rawipaddr ip.IPAddr
 
 	dispatcher stack.NetworkDispatcher
+
+	cache map[tcpip.Address]ip.HardwareAddr
 }
 
 var _ stack.LinkEndpoint = &EtharpLink{}
@@ -78,9 +81,21 @@ func (EtharpLink) MTU() uint32             { return 1500 }
 func (EtharpLink) MaxHeaderLength() uint16 { return ethernetHeaderSize }
 
 func (e EtharpLink) WritePacket(r *stack.Route, hdr *buffer.Prependable, payload buffer.View, protocol tcpip.NetworkProtocolNumber) error {
-	// prepend hdr with eth header
-	// e.link.WriteEthernetPacket(hdr, payload)
-	return errors.New("not implemented")
+	dest, ok := e.cache[r.RemoteAddress]
+	if !ok {
+		log.Printf("route to %s unknown, skipping packet", r.RemoteAddress)
+		return nil
+	}
+
+	prependEthernetHeader(hdr, ip.EthernetHeader{
+		Destination: dest,
+		Source:      e.rawmac,
+		Type:        ip.EtherType(protocol),
+	})
+
+	e.link.WriteEthernetPacket(hdr, payload)
+
+	return nil
 }
 
 func (e *EtharpLink) DeliverEthernetPacket(v buffer.View) {
@@ -131,6 +146,8 @@ func (e *EtharpLink) handleARP(hdr ip.EthernetHeader, v buffer.View) {
 }
 
 func (e *EtharpLink) handleARPRequest(arp EthernetArpHeader) {
+	e.cache[tcpip.Address(arp.SenderIPAddr[:])] = arp.SenderHardwareAddress
+
 	if tcpip.Address(arp.TargetIPAddr[:]) != e.ipaddr {
 		return
 	}
