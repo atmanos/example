@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"log"
 
 	"github.com/google/netstack/tcpip"
 	"github.com/google/netstack/tcpip/buffer"
@@ -59,6 +58,7 @@ func NewEtharpLink(mac, ipaddr tcpip.Address, link EthernetLink) *EtharpLink {
 		rawipaddr: rawipaddr,
 		link:      link,
 		cache:     map[tcpip.Address]ip.HardwareAddr{},
+		pending:   map[tcpip.Address][]pendingPacket{},
 	}
 }
 
@@ -73,6 +73,15 @@ type EtharpLink struct {
 	dispatcher stack.NetworkDispatcher
 
 	cache map[tcpip.Address]ip.HardwareAddr
+
+	pending map[tcpip.Address][]pendingPacket
+}
+
+type pendingPacket struct {
+	r        *stack.Route
+	hdr      *buffer.Prependable
+	payload  buffer.View
+	protocol tcpip.NetworkProtocolNumber
 }
 
 var _ stack.LinkEndpoint = &EtharpLink{}
@@ -80,10 +89,22 @@ var _ stack.LinkEndpoint = &EtharpLink{}
 func (EtharpLink) MTU() uint32             { return 1500 }
 func (EtharpLink) MaxHeaderLength() uint16 { return ethernetHeaderSize }
 
-func (e EtharpLink) WritePacket(r *stack.Route, hdr *buffer.Prependable, payload buffer.View, protocol tcpip.NetworkProtocolNumber) error {
+func (e *EtharpLink) WritePacket(r *stack.Route, hdr *buffer.Prependable, payload buffer.View, protocol tcpip.NetworkProtocolNumber) error {
 	dest, ok := e.cache[r.RemoteAddress]
 	if !ok {
-		log.Printf("route to %s unknown, skipping packet", r.RemoteAddress)
+		e.enqueuePacket(r, hdr, payload, protocol)
+
+		var rawipaddr ip.IPAddr
+		copy(rawipaddr[:], r.RemoteAddress)
+
+		e.sendArp(rawBroadcastAddr, EthernetArpHeader{
+			OpCode: 1,
+
+			SenderHardwareAddress: e.rawmac,
+			SenderIPAddr:          e.rawipaddr,
+
+			TargetIPAddr: rawipaddr,
+		})
 		return nil
 	}
 
@@ -128,6 +149,7 @@ func (e *EtharpLink) readHeader(v buffer.View) (ip.EthernetHeader, buffer.View) 
 }
 
 func (e *EtharpLink) Attach(dispatcher stack.NetworkDispatcher) {
+	e.sendGratuitousArp()
 	e.dispatcher = dispatcher
 
 	e.link.Attach(e)
@@ -140,14 +162,17 @@ func (e *EtharpLink) handleARP(hdr ip.EthernetHeader, v buffer.View) {
 		return
 	}
 
-	if arp.OpCode == 1 {
+	e.cache[tcpip.Address(arp.SenderIPAddr[:])] = arp.SenderHardwareAddress
+
+	switch arp.OpCode {
+	case 1:
 		e.handleARPRequest(arp)
+	case 2:
+		e.handleARPReply(arp)
 	}
 }
 
 func (e *EtharpLink) handleARPRequest(arp EthernetArpHeader) {
-	e.cache[tcpip.Address(arp.SenderIPAddr[:])] = arp.SenderHardwareAddress
-
 	if tcpip.Address(arp.TargetIPAddr[:]) != e.ipaddr {
 		return
 	}
@@ -161,6 +186,18 @@ func (e *EtharpLink) handleARPRequest(arp EthernetArpHeader) {
 		TargetHardwareAddress: arp.SenderHardwareAddress,
 		TargetIPAddr:          arp.SenderIPAddr,
 	})
+}
+
+func (e *EtharpLink) handleARPReply(arp EthernetArpHeader) {
+	ipaddr := tcpip.Address(arp.SenderIPAddr[:])
+	pending := e.pending[ipaddr]
+
+	delete(e.pending, ipaddr)
+
+	for _, packet := range pending {
+		e.WritePacket(packet.r, packet.hdr, packet.payload, packet.protocol)
+		packet.r.Release()
+	}
 }
 
 func (e *EtharpLink) sendArp(dest ip.HardwareAddr, arp EthernetArpHeader) {
@@ -198,6 +235,26 @@ func (e *EtharpLink) sendGratuitousArp() {
 
 		TargetHardwareAddress: e.rawmac,
 		TargetIPAddr:          e.rawipaddr,
+	})
+}
+
+func (e *EtharpLink) enqueuePacket(r *stack.Route, hdr *buffer.Prependable, payload buffer.View, protocol tcpip.NetworkProtocolNumber) {
+	var (
+		newr       = r.Clone()
+		newhdr     = buffer.NewPrependable(hdr.UsedLength() + ethernetHeaderSize)
+		newpayload = buffer.NewView(len(payload))
+	)
+
+	h := newhdr.Prepend(hdr.UsedLength())
+	copy(h, hdr.UsedBytes())
+
+	copy(newpayload, payload)
+
+	e.pending[r.RemoteAddress] = append(e.pending[r.RemoteAddress], pendingPacket{
+		&newr,
+		&newhdr,
+		newpayload,
+		protocol,
 	})
 }
 

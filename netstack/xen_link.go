@@ -3,7 +3,6 @@ package main
 import (
 	anet "atman/net"
 	"bytes"
-	"fmt"
 
 	"github.com/google/netstack/tcpip/buffer"
 )
@@ -18,8 +17,6 @@ type netif struct {
 
 func (i *netif) WriteEthernetPacket(hdr *buffer.Prependable, payload buffer.View) {
 	buf, _ := i.device.TxBuffers.Get()
-
-	fmt.Printf("Writing ethernet packet:\n\thdr=%v\n", hdr)
 
 	w := bytes.NewBuffer(buf.Page.Data[:0])
 	w.Write(hdr.UsedBytes())
