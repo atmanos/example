@@ -1,3 +1,9 @@
+// netif implements the EthernetLink interface
+// for reading and writing complete ethernet packets
+// to AtmanOS's low-level netif Xen driver.
+//
+// It should eventually be implemented by AtmanOS.
+
 package main
 
 import (

@@ -1,3 +1,11 @@
+// EtharpLink implements the stack.LinkEndpoint interface
+// for processing ethernet packets to and from the network layers.
+//
+// It is also responsible for maintaining ARP caches to map ip addresses
+// to ethernet MAC addresses.
+//
+// It should eventually be implemented by netstack or AtmanOS directly.
+
 package main
 
 import (
