@@ -2,6 +2,7 @@ package main
 
 import (
 	anet "atman/net"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -10,6 +11,8 @@ import (
 
 	"github.com/google/netstack/tcpip"
 	"github.com/google/netstack/tcpip/adapters/gonet"
+	"github.com/google/netstack/tcpip/link/sniffer"
+	"github.com/google/netstack/tcpip/network/arp"
 	"github.com/google/netstack/tcpip/network/ipv4"
 	"github.com/google/netstack/tcpip/stack"
 	"github.com/google/netstack/tcpip/transport/tcp"
@@ -47,13 +50,34 @@ func listenAndServe(s tcpip.Stack, addr tcpip.Address, port int) {
 	http.Serve(ln, nil)
 }
 
+func parseHardwareAddr(s string) tcpip.LinkAddress {
+	var addr [6]byte
+
+	fmt.Sscanf(
+		s,
+		"%02x:%02x:%02x:%02x:%02x:%02x",
+		&addr[0],
+		&addr[1],
+		&addr[2],
+		&addr[3],
+		&addr[4],
+		&addr[5],
+	)
+
+	return tcpip.LinkAddress(addr[:])
+}
 func newStack(addr tcpip.Address) (tcpip.Stack, error) {
-	s := stack.New([]string{ipv4.ProtocolName}, []string{tcp.ProtocolName})
+	s := stack.New([]string{ipv4.ProtocolName, arp.ProtocolName}, []string{tcp.ProtocolName})
 
 	mac := parseHardwareAddr(string(anet.DefaultDevice.MacAddr))
-	linkID := stack.RegisterLinkEndpoint(NewEtharpLink(mac, addr, &netif{anet.DefaultDevice}))
+	linkID := stack.RegisterLinkEndpoint(&netif2{mac: mac, device: anet.DefaultDevice})
 
-	if err := s.CreateNIC(1, linkID); err != nil {
+	sniffed := sniffer.New(linkID)
+	if err := s.CreateNIC(1, sniffed); err != nil {
+		return nil, err
+	}
+
+	if err := s.AddAddress(1, arp.ProtocolNumber, "arp"); err != nil {
 		return nil, err
 	}
 
