@@ -70,7 +70,7 @@ func newStack(addr tcpip.Address) (tcpip.Stack, error) {
 	s := stack.New([]string{ipv4.ProtocolName, arp.ProtocolName}, []string{tcp.ProtocolName})
 
 	mac := parseHardwareAddr(string(anet.DefaultDevice.MacAddr))
-	linkID := stack.RegisterLinkEndpoint(&netif2{mac: mac, device: anet.DefaultDevice})
+	linkID := stack.RegisterLinkEndpoint(&netif{mac: mac, device: anet.DefaultDevice})
 
 	sniffed := sniffer.New(linkID)
 	if err := s.CreateNIC(1, sniffed); err != nil {
