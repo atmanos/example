@@ -1,14 +1,13 @@
 package main
 
 import (
-	anet "atman/net"
-	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"strings"
 
+	"github.com/atmanos/anet"
 	"github.com/google/netstack/tcpip"
 	"github.com/google/netstack/tcpip/adapters/gonet"
 	"github.com/google/netstack/tcpip/link/sniffer"
@@ -23,6 +22,8 @@ func main() {
 
 	addrName := "10.0.2.20"
 	port := 9999
+
+	log.Printf("%#v\n", anet.DefaultDevice)
 
 	addr := tcpip.Address(net.ParseIP(addrName).To4())
 
@@ -50,27 +51,10 @@ func listenAndServe(s tcpip.Stack, addr tcpip.Address, port int) {
 	http.Serve(ln, nil)
 }
 
-func parseHardwareAddr(s string) tcpip.LinkAddress {
-	var addr [6]byte
-
-	fmt.Sscanf(
-		s,
-		"%02x:%02x:%02x:%02x:%02x:%02x",
-		&addr[0],
-		&addr[1],
-		&addr[2],
-		&addr[3],
-		&addr[4],
-		&addr[5],
-	)
-
-	return tcpip.LinkAddress(addr[:])
-}
 func newStack(addr tcpip.Address) (tcpip.Stack, error) {
 	s := stack.New([]string{ipv4.ProtocolName, arp.ProtocolName}, []string{tcp.ProtocolName})
 
-	mac := parseHardwareAddr(string(anet.DefaultDevice.MacAddr))
-	linkID := stack.RegisterLinkEndpoint(&netif{mac: mac, device: anet.DefaultDevice})
+	linkID := stack.RegisterLinkEndpoint(anet.NewLinkEndpoint(anet.DefaultDevice))
 
 	sniffed := sniffer.New(linkID)
 	if err := s.CreateNIC(1, sniffed); err != nil {
