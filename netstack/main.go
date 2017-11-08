@@ -39,7 +39,7 @@ func main() {
 	listenAndServe(s, addr, port)
 }
 
-func listenAndServe(s tcpip.Stack, addr tcpip.Address, port int) {
+func listenAndServe(s *stack.Stack, addr tcpip.Address, port int) {
 	fullAddr := tcpip.FullAddress{
 		NIC:  1,
 		Addr: addr,
@@ -51,7 +51,7 @@ func listenAndServe(s tcpip.Stack, addr tcpip.Address, port int) {
 	http.Serve(ln, nil)
 }
 
-func newStack(addr tcpip.Address) (tcpip.Stack, error) {
+func newStack(addr tcpip.Address) (*stack.Stack, *tcpip.Error) {
 	s := stack.New([]string{ipv4.ProtocolName, arp.ProtocolName}, []string{tcp.ProtocolName})
 
 	linkID := stack.RegisterLinkEndpoint(anet.NewLinkEndpoint(anet.DefaultDevice))
